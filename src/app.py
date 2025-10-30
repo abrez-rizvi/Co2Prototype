@@ -6,6 +6,7 @@ from data_manager import list_cities, load_city, load_custom_data, save_results
 from simulation import run_simulation
 from visualization import display_bar_chart, display_heatmap
 from report_generator import generate_summary
+from geospatial_heatmap import display_before_after_heatmaps, display_difference_heatmap
 
 
 def main():
@@ -133,9 +134,15 @@ def main():
         st.subheader('Before vs After Comparison')
         display_bar_chart(baselines, updated, title='CO₂ Emissions: Baseline vs Simulated')
         
-        # Heatmap
-        st.subheader('Sector Intensity Heatmap')
-        display_heatmap(updated, title='Simulated CO₂ Intensity by Sector')
+        # Geospatial Heatmaps - Before & After
+        st.subheader('Geospatial Emission Distribution')
+        st.markdown('Regional emission intensity mapped across city zones (North, South, East, West):')
+        display_before_after_heatmaps(baselines, updated, grid_size=(30, 30))
+        
+        # Difference heatmap
+        st.subheader('Emission Change Map')
+        st.markdown('Visual representation of emission changes by region (blue = decrease, red = increase):')
+        display_difference_heatmap(baselines, updated, grid_size=(30, 30))
         
         # Text summary
         st.subheader('Summary Report')
