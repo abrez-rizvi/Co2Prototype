@@ -1,0 +1,278 @@
+import streamlit as st
+import pandas as pd
+import os
+import requests
+import pydeck as pdk
+
+from data_manager import list_cities, load_city, load_custom_data, save_results
+from simulation import run_simulation
+from visualization import display_bar_chart, display_heatmap
+from report_generator import generate_summary
+
+def get_openaq_data(city_name):
+    """Fetches real-time air quality data from OpenAQ for a given city."""
+    try:
+        url = f"https://api.openaq.org/v2/latest?city={city_name}"
+        response = requests.get(url)
+        data = response.json()
+
+        records = []
+        for result in data.get("results", []):
+            lat = result.get("coordinates", {}).get("latitude")
+            lon = result.get("coordinates", {}).get("longitude")
+            for m in result.get("measurements", []):
+                # We’ll take ANY pollutant (pm10, so2, no2, co, pm25, etc.)
+                records.append({
+                    "location": result["location"],
+                    "parameter": m["parameter"],
+                    "value": m["value"],
+                    "unit": m["unit"],
+                    "lat": lat,
+                    "lon": lon
+                })
+
+        if not records:
+            st.warning(f"No pollutant data found for {city_name} on OpenAQ.")
+            return pd.DataFrame()
+
+        df = pd.DataFrame(records)
+        df["intensity_scaled"] = df["value"] / df["value"].max()
+        return df
+
+    except Exception as e:
+        st.error(f"Error fetching OpenAQ data: {e}")
+        return pd.DataFrame()
+
+def main():
+    st.title('🌍 Digital Twin for CO₂ Capture Prototype')
+
+    # Sidebar controls
+    st.sidebar.header('Data Selection')
+
+    # City selector
+    cities = list_cities()
+    if not cities:
+        st.sidebar.warning('No preset city data found in data/ folder.')
+        cities = []
+
+    selected_city = st.sidebar.selectbox('Select preset city', [''] + cities, index=0)
+
+    # File uploader for custom JSON
+    uploaded_file = st.sidebar.file_uploader('Or upload custom JSON', type=['json'])
+
+    # Load data button
+    load_button = st.sidebar.button('Load Data')
+
+    # Initialize session state
+    if 'city_data' not in st.session_state:
+        st.session_state.city_data = None
+        st.session_state.city_name = None
+
+    # Load data
+    if load_button:
+        if uploaded_file is not None:
+            try:
+                st.session_state.city_data = load_custom_data(uploaded_file)
+                st.session_state.city_name = st.session_state.city_data.get('city', 'Custom')
+                st.sidebar.success(f'Loaded custom data: {st.session_state.city_name}')
+            except Exception as e:
+                st.sidebar.error(f'Failed to load custom file: {e}')
+        elif selected_city:
+            try:
+                st.session_state.city_data = load_city(selected_city)
+                st.session_state.city_name = selected_city
+                st.sidebar.success(f'Loaded city: {selected_city}')
+            except Exception as e:
+                st.sidebar.error(f'Failed to load city: {e}')
+        else:
+            st.sidebar.warning('Please select a city or upload a file.')
+
+    # If no data yet
+    if st.session_state.city_data is None:
+        st.info('👈 Please select a city or upload a custom JSON file from the sidebar, then click "Load Data".')
+        st.markdown("""
+        **Expected JSON format:**
+        ```json
+        {
+          "city": "YourCity",
+          "sectors": {
+            "transport": 1200,
+            "energy": 2200,
+            "industry": 1500,
+            "infrastructure": 800
+          }
+        }
+        ```
+        """)
+        return
+
+    # Extract data
+    city_data = st.session_state.city_data
+    city_name = st.session_state.city_name
+    baselines = city_data.get('sectors', {})
+
+    if not baselines:
+        st.error('No sector data found in loaded city data.')
+        return
+
+    # Display baseline chart
+    st.header(f'Initial CO₂ Emissions — {city_name}')
+    baseline_df = pd.DataFrame([
+        {'Sector': s.capitalize(), 'CO₂ (units)': float(v)}
+        for s, v in baselines.items()
+    ])
+    st.bar_chart(baseline_df.set_index('Sector'))
+
+    # Intervention sliders
+    st.header('Intervention Controls')
+    st.markdown('Adjust sliders to simulate percentage changes in each sector (-50% to +50%):')
+
+    interventions = {}
+    cols = st.columns(2)
+    sector_list = list(baselines.keys())
+    for i, sector in enumerate(sector_list):
+        col = cols[i % 2]
+        with col:
+            val = st.slider(
+                f'{sector.capitalize()}',
+                min_value=-50,
+                max_value=50,
+                value=0,
+                step=5,
+                help=f'Adjust CO₂ emissions for {sector} sector'
+            )
+            interventions[sector] = val / 100.0
+
+    # Run Simulation
+    run_button = st.button('🚀 Run Simulation', type='primary', use_container_width=True)
+    city_coords = {
+        'Bangalore': {'lat': 12.9716, 'lon': 77.5946},
+        'Delhi': {'lat': 28.6139, 'lon': 77.2090},
+        'Mumbai': {'lat': 19.0760, 'lon': 72.8777},
+    }
+
+    if run_button:
+        updated = run_simulation(baselines, interventions)
+
+        df = pd.DataFrame([
+            {'sector': s, 'baseline': float(baselines.get(s, 0.0)), 'simulated': float(updated.get(s, 0.0))}
+            for s in baselines.keys()
+        ]).set_index('sector')
+        df['delta'] = df['baseline'] - df['simulated']
+        df['pct_change'] = df['delta'] / df['baseline'].replace({0: 1}) * 100.0
+
+        st.header('Simulation Results')
+        st.subheader('Before vs After Comparison')
+        display_bar_chart(baselines, updated, title='CO₂ Emissions: Baseline vs Simulated')
+
+        st.subheader("🌫️ Real-Time Air Quality — Delhi")
+
+        try:
+            url = "https://api.openaq.org/v3/measurements?country=IN&city=Delhi&limit=10000"
+            response = requests.get(url)
+            data = response.json()
+
+            records = data.get("results", [])
+            delhi_data = []
+
+            for result in records:
+                coords = result.get("coordinates", {})
+                if "latitude" in coords and "longitude" in coords:
+                    delhi_data.append({
+                        "lat": coords["latitude"],
+                        "lon": coords["longitude"],
+                        "parameter": result.get("parameter"),
+                        "value": result.get("value")
+                    })
+
+            if delhi_data:
+                df = pd.DataFrame(delhi_data)
+                min_val = df["value"].min()
+                max_val = df["value"].max()
+                df["intensity_scaled"] = (df["value"] - min_val) / (max_val - min_val + 1e-6)
+
+                st.success(f"✅ Loaded {len(df)} live pollution readings for Delhi")
+
+                layer = pdk.Layer(
+                    "HeatmapLayer",
+                    data=df,
+                    get_position='[lon, lat]',
+                    get_weight='intensity_scaled',
+                    radiusPixels=60,
+                    intensity=2,
+                    threshold=0.1
+                )
+
+                view_state = pdk.ViewState(
+                    latitude=28.6139,
+                    longitude=77.2090,
+                    zoom=9
+                )
+
+                r = pdk.Deck(
+                    layers=[layer],
+                    initial_view_state=view_state,
+                    map_provider="carto",
+                    map_style="light",
+                    tooltip={"text": "{parameter}: {value}"}
+                )
+
+                st.pydeck_chart(r)
+
+            else:
+                st.warning("No pollutant data found for Delhi on OpenAQ.\n\nNo real-time data available right now.")
+
+        except Exception as e:
+            st.error(f"Failed to fetch live OpenAQ data: {e}")
+
+        # --- Other sections ---
+        st.subheader('Sector Intensity Heatmap')
+        display_heatmap(updated, title='Simulated CO₂ Intensity by Sector')
+
+        st.subheader('Summary Report')
+        text_summary = generate_summary(baselines, updated)
+        st.info(text_summary)
+
+        with st.expander('📊 View Detailed Data Table'):
+            st.dataframe(df.style.format({
+                'baseline': '{:.1f}',
+                'simulated': '{:.1f}',
+                'delta': '{:.1f}',
+                'pct_change': '{:.1f}%'
+            }))
+
+        # Save Results
+        st.subheader('Export Results')
+        col1, col2 = st.columns(2)
+        with col1:
+            if st.button('💾 Save Results (JSON + CSV)', use_container_width=True):
+                try:
+                    json_path, csv_path = save_results(city_name, df)
+                    st.success(f'✅ Results saved!\n\n- JSON: `{os.path.basename(json_path)}`\n- CSV: `{os.path.basename(csv_path)}`')
+                except Exception as e:
+                    st.error(f'Failed to save results: {e}')
+
+        with col2:
+            csv_data = df.to_csv()
+            st.download_button(
+                label='⬇️ Download CSV',
+                data=csv_data,
+                file_name=f'{city_name}_simulation_results.csv',
+                mime='text/csv',
+                use_container_width=True
+            )
+
+    # Sidebar info
+    st.sidebar.markdown('---')
+    st.sidebar.markdown('### How to Use')
+    st.sidebar.markdown("""
+    1. Select a preset city or upload custom JSON  
+    2. Click **Load Data**  
+    3. Adjust intervention sliders  
+    4. Click **Run Simulation**  
+    5. Review results and export if needed  
+    """)
+
+
+if __name__ == '__main__':
+    main()

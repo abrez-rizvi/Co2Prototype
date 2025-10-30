@@ -7,7 +7,7 @@ import numpy as np
 import plotly.graph_objects as go
 from typing import Dict, Tuple, Optional
 import streamlit as st
-
+import os
 
 class RegionalGrid:
     """Represents a city divided into regional zones with emission data."""
@@ -234,52 +234,44 @@ def create_heatmap_figure(grid: np.ndarray,
     return fig
 
 
-def display_before_after_heatmaps(baseline_sectors: Dict[str, float],
-                                   simulated_sectors: Dict[str, float],
-                                   grid_size: Tuple[int, int] = (30, 30)):
-    """
-    Display before and after heatmaps side by side in Streamlit.
-    
-    Args:
-        baseline_sectors: Dictionary of baseline sector emissions
-        simulated_sectors: Dictionary of simulated sector emissions
-        grid_size: Resolution of the grid
-    """
-    # Create grids
+def display_before_after_heatmaps(baseline_sectors, simulated_sectors, grid_size=(30, 30)):
+    """Display before and after heatmaps and save them to /images."""
+    os.makedirs("images", exist_ok=True)
+
     baseline_grid = RegionalGrid(grid_size)
     baseline_grid.populate_from_sectors(baseline_sectors)
-    
+
     simulated_grid = RegionalGrid(grid_size)
     simulated_grid.populate_from_sectors(simulated_sectors)
-    
-    # Create figures
+
     fig_before = create_heatmap_figure(
         baseline_grid.get_grid(),
         title="Baseline Emission Distribution",
         show_borders=True
     )
-    
+
     fig_after = create_heatmap_figure(
         simulated_grid.get_grid(),
         title="Simulated Emission Distribution",
         show_borders=True
     )
-    
-    # Display side by side
+
+    # Save both as PNG
+    fig_before.write_image("images/baseline_heatmap.png")
+    fig_after.write_image("images/simulated_heatmap.png")
+
+    # Show in Streamlit
     col1, col2 = st.columns(2)
-    
     with col1:
-        st.plotly_chart(fig_before, use_container_width=True)
-    
+        st.plotly_chart(fig_before, width='stretch')
     with col2:
-        st.plotly_chart(fig_after, use_container_width=True)
-    
-    # Calculate and display summary statistics
+        st.plotly_chart(fig_after, width='stretch')
+
     baseline_total = baseline_grid.get_grid().sum()
     simulated_total = simulated_grid.get_grid().sum()
     change = simulated_total - baseline_total
     pct_change = (change / baseline_total * 100) if baseline_total > 0 else 0
-    
+
     st.markdown("---")
     col1, col2, col3 = st.columns(3)
     col1.metric("Baseline Total Intensity", f"{baseline_total:.1f}")
@@ -287,47 +279,35 @@ def display_before_after_heatmaps(baseline_sectors: Dict[str, float],
     col3.metric("Change", f"{change:+.1f}", f"{pct_change:+.1f}%")
 
 
-def display_difference_heatmap(baseline_sectors: Dict[str, float],
-                               simulated_sectors: Dict[str, float],
-                               grid_size: Tuple[int, int] = (30, 30)):
-    """
-    Display a difference heatmap showing changes between baseline and simulation.
-    
-    Args:
-        baseline_sectors: Dictionary of baseline sector emissions
-        simulated_sectors: Dictionary of simulated sector emissions
-        grid_size: Resolution of the grid
-    """
-    # Create grids
+def display_difference_heatmap(baseline_sectors, simulated_sectors, grid_size=(30, 30)):
+    """Display and save difference heatmap (Simulated - Baseline)."""
+    os.makedirs("images", exist_ok=True)
+
     baseline_grid = RegionalGrid(grid_size)
     baseline_grid.populate_from_sectors(baseline_sectors)
-    
+
     simulated_grid = RegionalGrid(grid_size)
     simulated_grid.populate_from_sectors(simulated_sectors)
-    
-    # Calculate difference
+
     diff_grid = simulated_grid.get_grid() - baseline_grid.get_grid()
-    
-    # Create diverging colorscale (blue for decrease, red for increase) with transparency
+
     colorscale = [
-        [0.0, 'rgba(0, 0, 200, 0.6)'],      # Dark blue (large decrease) - 60% transparent
-        [0.25, 'rgba(100, 150, 255, 0.5)'], # Light blue - 50% transparent
-        [0.5, 'rgba(240, 240, 240, 0.3)'],  # White (no change) - 70% transparent
-        [0.75, 'rgba(255, 150, 100, 0.5)'], # Light red - 50% transparent
-        [1.0, 'rgba(200, 0, 0, 0.6)']       # Dark red (large increase) - 60% transparent
+        [0.0, 'rgba(0, 0, 200, 0.6)'],
+        [0.25, 'rgba(100, 150, 255, 0.5)'],
+        [0.5, 'rgba(240, 240, 240, 0.3)'],
+        [0.75, 'rgba(255, 150, 100, 0.5)'],
+        [1.0, 'rgba(200, 0, 0, 0.6)']
     ]
-    
+
     fig = go.Figure(data=go.Heatmap(
         z=diff_grid,
         colorscale=colorscale,
-        zmid=0,  # Center the colorscale at zero
+        zmid=0,
         showscale=True,
-        colorbar=dict(
-            title=dict(text="Change", side="right")
-        ),
+        colorbar=dict(title=dict(text="Change", side="right")),
         hovertemplate='Row: %{y}<br>Col: %{x}<br>Change: %{z:+.2f}<extra></extra>'
     ))
-    
+
     fig.update_layout(
         title="Emission Change Map (Simulated - Baseline)",
         xaxis=dict(showgrid=False, showticklabels=False, title=""),
@@ -336,5 +316,9 @@ def display_difference_heatmap(baseline_sectors: Dict[str, float],
         height=700,
         margin=dict(l=20, r=20, t=60, b=20)
     )
-    
-    st.plotly_chart(fig, use_container_width=True)
+
+    # Save as PNG for later use
+    fig.write_image("images/difference_heatmap.png")
+
+    # Show in Streamlit
+    st.plotly_chart(fig, width='stretch')

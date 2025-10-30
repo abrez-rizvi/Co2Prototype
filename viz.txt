@@ -4,7 +4,8 @@ Provides two main helpers:
 - display_bar_chart(before_data, after_data): side-by-side bar chart
 - display_heatmap(data): simple intensity heatmap by sector
 """
-
+import plotly.express as px
+import streamlit as st
 from typing import Dict, Any, Sequence
 import streamlit as st
 import plotly.graph_objects as go
@@ -61,7 +62,7 @@ def display_bar_chart(before_data, after_data, title: str = 'Before vs After CO�
     fig.add_trace(go.Bar(name='After', x=all_index, y=after.values, marker_color='seagreen'))
     fig.update_layout(barmode='group', title=title, xaxis_title='Sector', yaxis_title='CO₂ Emissions')
 
-    st.plotly_chart(fig, width='stretch')
+    st.plotly_chart(fig, use_container_width=True)
 
 
 def display_heatmap(data, title: str = 'Sector CO₂ Heatmap') -> None:
@@ -92,7 +93,7 @@ def display_heatmap(data, title: str = 'Sector CO₂ Heatmap') -> None:
     ))
     fig.update_layout(title=title, xaxis_nticks=len(sectors))
 
-    st.plotly_chart(fig, width='stretch')
+    st.plotly_chart(fig, use_container_width=True)
 
 
 # Compatibility wrappers (older API expected functions that return figure objects)
@@ -143,3 +144,143 @@ def summary_table(df):
     )])
     return fig
 
+def display_country_heatmap(city_data: dict, title="CO₂ Intensity Across Cities"):
+    """Display an interactive heatmap of Indian cities based on CO₂ levels."""
+    if not city_data:
+        st.warning("No city data provided for heatmap.")
+        return
+
+    # Predefined coordinates (you can expand this later)
+    city_coords = {
+        "Delhi": {"lat": 28.6139, "lon": 77.2090},
+        "Bangalore": {"lat": 12.9716, "lon": 77.5946},
+        "Mumbai": {"lat": 19.0760, "lon": 72.8777},
+        "Chennai": {"lat": 13.0827, "lon": 80.2707},
+        "Kolkata": {"lat": 22.5726, "lon": 88.3639},
+        "Hyderabad": {"lat": 17.3850, "lon": 78.4867},
+    }
+
+    # Build dataframe
+    data = []
+    for city, value in city_data.items():
+        if city not in city_coords:
+            continue  # skip unknown cities
+        data.append({
+            "City": city,
+            "CO₂": float(value),
+            "lat": city_coords[city]["lat"],
+            "lon": city_coords[city]["lon"]
+        })
+
+    if not data:
+        st.error("No valid city coordinates found.")
+        return
+
+    df = pd.DataFrame(data)
+
+    fig = px.scatter_geo(
+        df,
+        lat="lat",
+        lon="lon",
+        color="CO₂",
+        size="CO₂",
+        hover_name="City",
+        projection="natural earth",
+        color_continuous_scale="YlOrRd",
+        title=title,
+    )
+
+    # Focus on India region
+    fig.update_geos(
+        visible=False,
+        scope="asia",
+        lonaxis_range=[68, 97],
+        lataxis_range=[6, 37],
+        showcountries=True,
+        countrycolor="Black"
+    )
+
+    fig.update_layout(
+        title_x=0.5,
+        height=600,
+        margin=dict(l=0, r=0, t=60, b=0)
+    )
+
+    st.plotly_chart(fig, use_container_width=True)
+
+
+
+CITY_COORDS = {
+    "Delhi": {"lat": 28.6139, "lon": 77.2090},
+    "Mumbai": {"lat": 19.0760, "lon": 72.8777},
+    "Bangalore": {"lat": 12.9716, "lon": 77.5946},
+    "Chennai": {"lat": 13.0827, "lon": 80.2707},
+    "Kolkata": {"lat": 22.5726, "lon": 88.3639},
+    "Hyderabad": {"lat": 17.3850, "lon": 78.4867},
+}
+
+def display_country_heatmap(city_values: Dict[str, float], title="CO₂ Intensity Across Cities"):
+    if not city_values:
+        st.warning("No city data found.")
+        return
+
+    rows = []
+    missing = []
+    for city, val in city_values.items():
+        coords = CITY_COORDS.get(city)
+        if coords:
+            rows.append({
+                "city": city,
+                "co2": val,
+                "lat": coords["lat"],
+                "lon": coords["lon"]
+            })
+        else:
+            missing.append(city)
+
+    if missing:
+        st.info(f"No coordinates found for: {', '.join(missing)}")
+
+    df = pd.DataFrame(rows)
+    fig = px.scatter_geo(
+        df,
+        lat="lat",
+        lon="lon",
+        color="co2",
+        size="co2",
+        hover_name="city",
+        color_continuous_scale="YlOrRd",
+        projection="natural earth",
+        title=title,
+    )
+
+    fig.update_geos(
+        visible=False,
+        scope="asia",
+        lonaxis_range=[68, 97],
+        lataxis_range=[6, 37],
+        showcountries=True,
+        countrycolor="Black",
+    )
+
+    st.plotly_chart(fig, use_container_width=True)
+
+
+def show_city_drilldown(city_map: Dict[str, dict]):
+    st.subheader("🔍 City Sector Breakdown")
+
+    if not city_map:
+        st.info("No city data loaded.")
+        return
+
+    selected_city = st.selectbox("Select a city", list(city_map.keys()))
+    city_data = city_map[selected_city]
+    sectors = city_data.get("sectors", {})
+
+    df = pd.DataFrame({
+        "Sector": list(sectors.keys()),
+        "Emission": [float(v) for v in sectors.values()]
+    })
+
+    fig = px.bar(df, x="Sector", y="Emission", title=f"{selected_city} Sector Emissions", color="Emission")
+    st.plotly_chart(fig, use_container_width=True)
