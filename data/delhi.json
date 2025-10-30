@@ -1,0 +1,14 @@
+{
+  "city": "Delhi",
+  "sectors": {
+    "transport": {"baseline": 2000},
+    "industry": {"baseline": 3000},
+    "residential": {"baseline": 1500},
+    "power": {"baseline": 4000}
+  },
+  "interactions": {
+    "transport": {"industry": 0.05, "power": 0.02},
+    "industry": {"power": 0.10},
+    "residential": {"power": 0.08}
+  }
+}

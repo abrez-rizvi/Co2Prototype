@@ -1,0 +1,14 @@
+{
+  "city": "Mumbai",
+  "sectors": {
+    "transport": {"baseline": 1500},
+    "industry": {"baseline": 2500},
+    "residential": {"baseline": 1300},
+    "power": {"baseline": 3500}
+  },
+  "interactions": {
+    "transport": {"industry": 0.04, "power": 0.02},
+    "industry": {"power": 0.12},
+    "residential": {"power": 0.07}
+  }
+}

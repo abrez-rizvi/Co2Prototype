@@ -1,0 +1,14 @@
+{
+  "city": "Bangalore",
+  "sectors": {
+    "transport": {"baseline": 1200},
+    "industry": {"baseline": 2000},
+    "residential": {"baseline": 1100},
+    "power": {"baseline": 3000}
+  },
+  "interactions": {
+    "transport": {"industry": 0.03, "power": 0.025},
+    "industry": {"power": 0.09},
+    "residential": {"power": 0.06}
+  }
+}
